@@ -1,0 +1,127 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vehicle Builder VR</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#8fc3f5;font:15px system-ui,sans-serif}#i{position:fixed;left:50%;top:12px;transform:translateX(-50%);background:#fffd;padding:10px 16px;border-radius:12px;text-align:center;max-width:90vw}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"}}</script></head>
+<body><div id="i"><b>Vehicle Builder VR</b><br>Open over https in the Quest Browser and press <b>Enter VR</b>.</div>
+<script type="module">
+import*as T from 'three';import{VRButton}from 'three/addons/webxr/VRButton.js';import*as C from 'cannon-es';
+const V=(x=0,y=0,z=0)=>new T.Vector3(x,y,z),Qt=q=>new T.Quaternion(q.x,q.y,q.z,q.w),cl=(v,a,b)=>Math.max(a,Math.min(b,v)),Y=V(0,1,0),mat=c=>new T.MeshLambertMaterial({color:c});
+const R=new T.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));R.setSize(innerWidth,innerHeight);R.xr.enabled=true;R.xr.setReferenceSpaceType('local-floor');document.body.append(R.domElement,VRButton.createButton(R));
+const S=new T.Scene();S.background=new T.Color(0x8fc3f5);S.fog=new T.Fog(0x8fc3f5,80,320);
+const cam=new T.PerspectiveCamera(70,innerWidth/innerHeight,.02,700),rig=new T.Group();rig.add(cam);S.add(rig);cam.position.y=1.6;rig.position.set(0,0,5);
+S.add(new T.HemisphereLight(0xffffff,0x66665f,1.1));const sun=new T.DirectionalLight(0xffffff,1.3);sun.position.set(30,60,20);S.add(sun);
+const box=(w,h,d,c,x,y,z)=>{const m=new T.Mesh(new T.BoxGeometry(w,h,d),mat(c));m.position.set(x,y,z);S.add(m)};
+const gr=new T.Mesh(new T.PlaneGeometry(900,900),mat(0x6e6e68));gr.rotation.x=-Math.PI/2;S.add(gr);const gd=new T.GridHelper(900,450,0x55554f,0x7d7d75);gd.position.y=.01;S.add(gd);
+box(26,.02,260,0x3a3a3a,0,.02,-150);for(let i=0;i<20;i++)box(.5,.03,6,0xeeeeee,0,.03,-20-i*12);box(300,.02,240,0x2a6fb0,0,.02,270);
+[[-45,-20],[45,-20],[-45,-70],[45,-70]].forEach(([x,z])=>box(24,12,30,0x3c5a48,x,6,z));[-20,0,20].forEach(x=>box(3,30,3,0xb23a2a,x,15,-110));
+const LOC={'Parking Lot':[0,6],'Runway':[0,-40],'Main Apron':[-25,-5],'Hangar 1':[-45,0],'Hangar 2':[45,0],'Tower 1':[-20,-98],'Tower 2':[20,-98],'Ocean':[0,150]};
+const W=new C.World();W.gravity.set(0,-9.81,0);W.defaultContactMaterial.friction=.7;W.defaultContactMaterial.restitution=.05;
+const gb=new C.Body({mass:0,shape:new C.Plane()});gb.quaternion.setFromEuler(-Math.PI/2,0,0);W.addBody(gb);
+const P={cube:{s:[.25,.25,.25],m:3,c:0x2a8a8a},plate:{s:[.5,.06,.5],m:1,c:0xe0a020},beam:{s:[1,.12,.12],m:1.5,c:0x8a929c},panel:{s:[.5,.5,.03],m:.7,c:0xe8e8e8},wing:{s:[1.4,.04,.5],m:1,c:0xd8d8d8},nose:{s:[.5,.5,.5],m:1,c:0x2a8a8a},wheel:{s:[.2,.6,.6],m:4,c:0x9aa0aa},thruster:{s:[.25,.25,.5],m:4,c:0x6a7480},seat:{s:[.4,.4,.4],m:5,c:0x3a6ea5},button:{s:[.15,.15,.15],m:.3,c:0xc83030},switch:{s:[.15,.15,.15],m:.3,c:0x2a8a4a},stick:{s:[.2,.2,.2],m:.4,c:0x3a5a9a},throttle:{s:[.2,.2,.2],m:.4,c:0xe0a020},sensor:{s:[.15,.15,.15],m:.3,c:0x8a4ac8}};
+const NM=Object.keys(P),rad=p=>Math.max(...P[p.t].s)/2,SRC=['button','switch','stick','throttle','sensor'],ACT=['wheel','thruster'];
+const AS=[],WI=[],cfg={turn:'Snap',move:'Head',rot:90,tool:'select'},drv={t:0,s:0,b:0};let seat=null,pend=null,BT=[],AC;
+function beep(f=500,d=.07){try{AC=AC||new AudioContext();const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=f;g.gain.value=.07;o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d)}catch(e){}}
+function mkPart(t,col=P[t].c){const[x,y,z]=P[t].s;let m,pm;
+ if(t=='wheel'){m=new T.Group();const st=new T.Group(),ti=new T.Mesh(new T.CylinderGeometry(.3,.3,.2,24).rotateZ(Math.PI/2),mat(0x1c1c1c));pm=new T.Mesh(new T.CylinderGeometry(.17,.17,.215,10).rotateZ(Math.PI/2),mat(col));ti.add(pm);st.add(ti);m.add(st);m.userData={st,ti}}
+ else{pm=m=new T.Mesh(t=='nose'?new T.SphereGeometry(.25,16,12):t=='thruster'?new T.CylinderGeometry(.17,.12,.5,14).rotateX(Math.PI/2):new T.BoxGeometry(x,y,z),mat(col));if(SRC.includes(t)){const k=new T.Mesh(new T.SphereGeometry(.05,10,8),mat(0xffffff));k.position.y=y/2+.03;m.add(k)}}
+ const p={t,col,lp:V(),lq:new T.Quaternion(),m,pm,out:0,spin:0,sa:0,role:1,man:0};m.userData.p=p;return p}
+function build(A,kin){const o=A.body;let F=A.F.clone(),Q=A.Q.clone();if(o){Q=Qt(o.quaternion);F=V(o.position.x,o.position.y,o.position.z).sub(A.com.clone().applyQuaternion(Q));W.removeBody(o)}
+ let m=0;const c=V();A.parts.forEach(p=>{const w=P[p.t].m;m+=w;c.addScaledVector(p.lp,w)});c.divideScalar(m);A.com.copy(c);A.mass=m;
+ const b=new C.Body({mass:kin?0:m,type:kin?C.Body.KINEMATIC:C.Body.DYNAMIC,linearDamping:.03,angularDamping:.1,allowSleep:false});
+ A.parts.forEach(p=>{const s=p.t=='wheel'?[.16,.16,.16]:P[p.t].s,d=p.lp.clone().sub(c);b.addShape(new C.Box(new C.Vec3(s[0]/2,s[1]/2,s[2]/2)),new C.Vec3(d.x,d.y,d.z),new C.Quaternion(p.lq.x,p.lq.y,p.lq.z,p.lq.w));p.m.position.copy(d);p.m.quaternion.copy(p.lq)});
+ const e=F.clone().add(c.clone().applyQuaternion(Q));b.position.set(e.x,e.y,e.z);b.quaternion.set(Q.x,Q.y,Q.z,Q.w);if(o&&!kin){b.velocity.copy(o.velocity);b.angularVelocity.copy(o.angularVelocity)}
+ W.addBody(b);A.body=b;A.g.position.copy(e);A.g.quaternion.copy(Q)}
+function mkA(parts,F,Q){const A={parts,g:new T.Group(),body:null,com:V(),mass:1,F:F.clone(),Q:Q.clone(),held:null};S.add(A.g);parts.forEach(p=>{p.A=A;A.g.add(p.m)});build(A,false);AS.push(A);return A}
+function rm(A){W.removeBody(A.body);S.remove(A.g);AS.splice(AS.indexOf(A),1)}
+function roles(A){const w=A.parts.filter(p=>p.t=='wheel');if(!w.length)return;const mz=w.reduce((s,p)=>s+p.lp.z,0)/w.length;w.forEach(p=>{if(!p.man)p.role=p.lp.z<mz-.05?3:1})}
+const gs=.0625,snapV=v=>v.set(Math.round(v.x/gs)*gs,Math.round(v.y/gs)*gs,Math.round(v.z/gs)*gs);
+function snapQ(q){const e=new T.Euler().setFromQuaternion(q,'YXZ'),s=cfg.rot*Math.PI/180;e.set(Math.round(e.x/s)*s,Math.round(e.y/s)*s,Math.round(e.z/s)*s,'YXZ');q.setFromEuler(e)}
+function weld(D){let B=null,bd=1e9;for(const X of AS){if(X===D||X.held)continue;for(const q of X.parts){const wq=q.m.getWorldPosition(V());for(const p of D.parts){const d=p.m.getWorldPosition(V()).distanceTo(wq)-rad(p)-rad(q);if(d<bd){bd=d;B=X}}}}
+ if(!B||bd>.06)return;const bq=Qt(B.body.quaternion),inv=bq.clone().invert(),bp=V(B.body.position.x,B.body.position.y,B.body.position.z);
+ D.parts.forEach(p=>{const wp=p.m.getWorldPosition(V()),wq=p.m.getWorldQuaternion(new T.Quaternion());p.lp=snapV(wp.sub(bp).applyQuaternion(inv).add(B.com));p.lq=inv.clone().multiply(wq);snapQ(p.lq);p.A=B;B.parts.push(p);B.g.add(p.m)});
+ rm(D);build(B,false);roles(B);beep(650)}
+function grab(h,A,auto){A.held=h;build(A,true);const b=A.body;h.grab=A;h.autog=auto;h.off=h.c.matrixWorld.clone().invert().multiply(new T.Matrix4().compose(V(b.position.x,b.position.y,b.position.z),Qt(b.quaternion),V(1,1,1)))}
+function drop(h){const A=h.grab;h.grab=null;A.held=null;build(A,false);A.body.velocity.set(h.vel.x,h.vel.y,h.vel.z);weld(A)}
+function spawn(t,h){const hp=h.c.getWorldPosition(V()),f=V(0,0,-1).applyQuaternion(h.c.getWorldQuaternion(new T.Quaternion()));const A=mkA([mkPart(t)],hp.addScaledVector(f,.35),new T.Quaternion().setFromAxisAngle(Y,Math.atan2(-f.x,-f.z)));grab(h,A,1);beep(600)}
+function detach(p){const A=p.A,wp=p.m.getWorldPosition(V()),wq=p.m.getWorldQuaternion(new T.Quaternion());A.parts.splice(A.parts.indexOf(p),1);A.g.remove(p.m);if(A.parts.length){build(A,false);roles(A)}else rm(A);p.lp=V();p.lq=new T.Quaternion();return mkA([p],wp,wq)}
+function delPart(p){const A=p.A;for(let i=WI.length;i--;)if(WI[i].a===p||WI[i].b===p){S.remove(WI[i].l);WI.splice(i,1)}A.parts.splice(A.parts.indexOf(p),1);A.g.remove(p.m);if(seat&&seat.p===p)seat=null;if(A.parts.length){build(A,false);roles(A)}else rm(A)}
+function dupe(A){const b=A.body,Q=Qt(b.quaternion),e=A.parts.reduce((m,p)=>Math.max(m,Math.abs(p.lp.x-A.com.x)),0)*2+.6,F=V(b.position.x,b.position.y,b.position.z).sub(A.com.clone().applyQuaternion(Q)).add(V(e,.3,0));
+ const n=mkA(A.parts.map(o=>{const p=mkPart(o.t,o.col);p.lp.copy(o.lp);p.lq.copy(o.lq);p.role=o.role;p.man=o.man;return p}),F,Q);roles(n);beep(700)}
+function wire(a,b){if(WI.some(w=>w.a===a&&w.b===b))return;const g=new T.BufferGeometry().setAttribute('position',new T.BufferAttribute(new Float32Array(6),3)),l=new T.Line(g,new T.LineBasicMaterial({color:0xffd23f}));l.frustumCulled=false;S.add(l);WI.push({a,b,l})}
+function wired(p,k){let v;for(const w of WI)if(w.b===p&&(w.a.t=='stick'?'steer':'drive')==k)v=w.a.out;return v}
+function paintP(p,c){p.col=c;p.pm.material.color.setHex(c)}
+function sit(p){seat={p,y:undefined};beep(500)}
+function exit(){if(!seat)return;const w=seat.p.m.getWorldPosition(V());seat=null;rig.position.set(w.x+1.1,0,w.z)}
+function turn(a){const hp=cam.getWorldPosition(V());rig.position.sub(hp).applyAxisAngle(Y,a).add(hp);rig.rotation.y+=a}
+function forces(A,h){const b=A.body,q=Qt(b.quaternion),bp=V(b.position.x,b.position.y,b.position.z),ws=A.parts.filter(p=>p.t=='wheel'),n=ws.length||1,nd=Math.max(1,ws.filter(p=>p.role&1).length),dv=seat&&seat.p.A===A?drv:{t:0,s:0,b:0},mg=A.mass*9.81;
+ const wo=p=>p.lp.clone().sub(A.com).applyQuaternion(q).add(bp),ap=(f,p)=>b.applyForce(new C.Vec3(f.x,f.y,f.z),new C.Vec3(p.x-bp.x,p.y-bp.y,p.z-bp.z)),vp=w=>{const r=new C.Vec3();b.getVelocityAtWorldPoint(new C.Vec3(w.x,w.y,w.z),r);return r};
+ for(const p of A.parts){
+  if(p.t=='wheel'){const w=wo(p),pen=.42-w.y;if(pen<=0){p.spin+=0;continue}const k=mg/n/.06,vv=vp(w);let Fn=k*pen-1.2*Math.sqrt(k*A.mass/n)*vv.y;if(w.y<.3)Fn+=k*8*(.3-w.y);Fn=Math.max(0,Fn);
+   const dr=p.role&1?(wired(p,'drive')??dv.t):0,st=p.role&2?(wired(p,'steer')??dv.s):0;p.sa+=(-st*.5-p.sa)*Math.min(1,h*10);
+   const fw=V(0,0,-1).applyAxisAngle(Y,p.sa).applyQuaternion(p.lq).applyQuaternion(q);fw.y=0;fw.normalize();const lt=V(-fw.z,0,fw.x),vf=vv.x*fw.x+vv.z*fw.z,vl=vv.x*lt.x+vv.z*lt.z;
+   let fx=dr?(dr*vf<22?dr*A.mass*8/nd:0):-vf*A.mass/n*.8;fx=cl(fx,-1.3*Fn,1.3*Fn);const fl=cl(-vl*A.mass/n*25,-1.3*Fn,1.3*Fn);p.spin+=vf*h/.3;
+   ap(V(fw.x*fx+lt.x*fl,Fn,fw.z*fx+lt.z*fl),w)}
+  else if(p.t=='thruster'){const th=cl(wired(p,'drive')??dv.b,0,1);if(th>.01)ap(V(0,0,-1).applyQuaternion(p.lq).applyQuaternion(q).multiplyScalar(th*Math.max(350,A.mass*8)),wo(p))}
+  else if(p.t=='wing'){const w=wo(p),r=vp(w),v=V(r.x,r.y,r.z),pq=p.lq.clone().premultiply(q),up=V(0,1,0).applyQuaternion(pq),fw=V(0,0,-1).applyQuaternion(pq),sp=v.length();if(sp>1){const al=Math.atan2(-v.dot(up),v.dot(fw)),L=.42*sp*sp*.7*cl(2*Math.PI*al,-1.2,1.2);ap(up.multiplyScalar(L).addScaledVector(v,-.08*sp),w)}}}}
+function sync(){AS.forEach(A=>{const b=A.body;A.g.position.set(b.position.x,b.position.y,b.position.z);A.g.quaternion.set(b.quaternion.x,b.quaternion.y,b.quaternion.z,b.quaternion.w);A.parts.forEach(p=>{if(p.t=='wheel'){p.m.userData.st.rotation.y=p.sa;p.m.userData.ti.rotation.x=p.spin}else if(p.t=='sensor')p.out=Math.min(1,b.velocity.length()/20)})});
+ WI.forEach(w=>{const a=w.a.m.getWorldPosition(V()),c=w.b.m.getWorldPosition(V()),at=w.l.geometry.attributes.position;at.setXYZ(0,a.x,a.y,a.z);at.setXYZ(1,c.x,c.y,c.z);at.needsUpdate=true});
+ if(seat){const A=seat.p.A,y=new T.Euler().setFromQuaternion(Qt(A.body.quaternion),'YXZ').y;if(seat.y!==undefined){const d=y-seat.y;turn(Math.atan2(Math.sin(d),Math.cos(d)))}seat.y=y;rig.position.add(seat.p.m.getWorldPosition(V()).add(V(0,.6,0)).sub(cam.getWorldPosition(V())))}}
+function warp(n){const[x,z]=LOC[n];seat=null;rig.position.set(x,0,z)}
+function clr(){[...AS].forEach(A=>rm(A));WI.forEach(w=>S.remove(w.l));WI.length=0;seat=null;pend=null;H.forEach(h=>{h.grab=null;h.ctl=null})}
+function save(n){const ix=new Map();AS.forEach((A,i)=>A.parts.forEach((p,j)=>ix.set(p,[i,j])));const d={a:AS.map(A=>{const b=A.body,Q=Qt(b.quaternion);return{F:V(b.position.x,b.position.y,b.position.z).sub(A.com.clone().applyQuaternion(Q)).toArray(),Q:Q.toArray(),p:A.parts.map(p=>[p.t,p.col,p.lp.toArray(),p.lq.toArray(),p.role,p.man])}}),w:WI.map(w=>[ix.get(w.a),ix.get(w.b)])};try{localStorage.setItem('vb'+n,JSON.stringify(d))}catch(e){}beep(900)}
+function load(n){let d;try{d=JSON.parse(localStorage.getItem('vb'+n))}catch(e){}if(!d)return;clr();const L=d.a.map(a=>mkA(a.p.map(r=>{const p=mkPart(r[0],r[1]);p.lp.fromArray(r[2]);p.lq.fromArray(r[3]);p.role=r[4];p.man=r[5];return p}),V().fromArray(a.F),new T.Quaternion().fromArray(a.Q)));d.w.forEach(([a,b])=>wire(L[a[0]].parts[a[1]],L[b[0]].parts[b[1]]));beep(900)}
+/* UI panel */
+const uc=document.createElement('canvas');uc.width=512;uc.height=640;const cx=uc.getContext('2d'),ut=new T.CanvasTexture(uc);
+const ui={mesh:new T.Mesh(new T.PlaneGeometry(.38,.475),new T.MeshBasicMaterial({map:ut,transparent:true,side:T.DoubleSide,fog:false})),tab:'Build',hv:-1,dirty:1,col:0xe0a020};ui.mesh.position.set(0,1.3,3.5);S.add(ui.mesh);
+const COL=[0xe0a020,0xc83030,0x2a8a8a,0x3a6ea5,0x2e8b3e,0x8a4ac8,0xffffff,0xd8d8d8,0x888f99,0x4a4f58,0x1c1c1c,0xf08030,0xf0d0a8,0xb07850,0x7a4a2a,0xff7fb0,0x70d8f0,0xa0e060,0x20c0a0,0x5050c0,0x900020,0xf0e060,0x3a3a60,0x00aa00];
+const HELP={Build:'Trigger a part: it sticks to your hand; trigger again to drop it.|Drop it touching another part to weld it (snaps to grid).|Grip = move a whole object. Trigger+Grip = pull one part off.|Select tool + trigger on a seat to sit. Left stick drives,|left trigger = thrusters, Y/B = get out. X = hide panel.',Paint:'Pick a colour, then hold trigger on parts to paint them.',Settings:'Left stick moves, right stick turns. Grab mode: hold grip on|empty air and pull yourself. Wire tool: pick a control, then a|wheel/thruster. Wire tool on a wheel cycles its role and clears wires.',Warp:'Teleport to a spot on the airfield.',Save:'Three slots, stored in this browser.'};
+function draw(){BT=[];const g=cx;g.clearRect(0,0,512,640);g.fillStyle='rgba(222,226,230,.95)';g.fillRect(0,0,512,640);g.textBaseline='middle';
+ const b=(x,y,w,h,s,fn,on,c)=>{const hv=BT.length==ui.hv;g.fillStyle=c!=null?'#'+c.toString(16).padStart(6,'0'):on?'#13a0d8':hv?'#7cc4e0':'#4aa3c4';g.fillRect(x,y,w,h);if(on||hv){g.strokeStyle='#fff';g.lineWidth=4;g.strokeRect(x+2,y+2,w-4,h-4)}if(s){g.fillStyle='#fff';g.font='bold 20px sans-serif';g.textAlign='center';g.fillText(s,x+w/2,y+h/2)}BT.push({x,y,w,h,fn})};
+ ['Build','Paint','Settings','Warp','Save'].forEach((t,i)=>b(6+i*100,6,96,46,t,()=>{ui.tab=t;ui.dirty=1},ui.tab==t));
+ ['select','copy','wire','paint','delete'].forEach((t,i)=>b(6+i*100,58,96,44,t,()=>{cfg.tool=t;pend=null;ui.dirty=1},cfg.tool==t));const y0=112;
+ if(ui.tab=='Build')NM.forEach((t,i)=>b(6+(i%4)*125,y0+Math.floor(i/4)*78,119,72,t,h=>spawn(t,h)));
+ else if(ui.tab=='Paint')COL.forEach((c,i)=>b(8+(i%6)*83,y0+Math.floor(i/6)*83,78,78,'',()=>{ui.col=c;cfg.tool='paint';ui.dirty=1},ui.col==c,c));
+ else if(ui.tab=='Settings'){const row=(y,l,k,o)=>{g.fillStyle='#223';g.font='bold 20px sans-serif';g.textAlign='left';g.fillText(l,10,y);o.forEach((v,i)=>b(6+i*(500/o.length),y+16,500/o.length-6,46,String(v),()=>{cfg[k]=v;ui.dirty=1},cfg[k]==v))};row(y0+12,'Turning','turn',['None','Snap','Smooth']);row(y0+100,'Movement','move',['Grab','Hand','Head']);row(y0+188,'Rotation snap (deg)','rot',[5,15,45,90])}
+ else if(ui.tab=='Warp')Object.keys(LOC).forEach((n,i)=>b(6+(i%2)*251,y0+Math.floor(i/2)*70,245,64,n,()=>warp(n)));
+ else{[1,2,3].forEach(n=>{b(6,y0+(n-1)*72,245,64,'Save '+n,()=>save(n));b(261,y0+(n-1)*72,245,64,'Load '+n,()=>load(n))});b(6,y0+230,500,56,'Clear all',()=>clr())}
+ g.fillStyle='#223';g.font='15px sans-serif';g.textAlign='left';HELP[ui.tab].split('|').forEach((s,i)=>g.fillText(s,10,450+i*20));ut.needsUpdate=true;ui.dirty=0}
+const tc=document.createElement('canvas');tc.width=256;tc.height=64;const tx=tc.getContext('2d'),tt=new T.CanvasTexture(tc),tip=new T.Sprite(new T.SpriteMaterial({map:tt,depthTest:false}));tip.scale.set(.4,.1,1);tip.visible=false;S.add(tip);let tl='';
+function tipSet(p){if(!p||!p.A){tip.visible=false;return}const s=p.t+(SRC.includes(p.t)?'  out: '+p.out.toFixed(2):'')+(p.t=='wheel'?'  ['+['free','drive','steer','drive+steer'][p.role]+']':'');if(s!=tl){tl=s;tx.clearRect(0,0,256,64);tx.fillStyle='#000c';tx.fillRect(0,0,256,64);tx.fillStyle='#fff';tx.font='bold 22px sans-serif';tx.textAlign='center';tx.fillText(s,128,36);tt.needsUpdate=true}tip.visible=true;tip.position.copy(p.m.getWorldPosition(V())).y+=.3}
+/* hands */
+const buzz=h=>h.gp&&h.gp.hapticActuators&&h.gp.hapticActuators[0]&&h.gp.hapticActuators[0].pulse(.4,30);
+const H=[0,1].map(i=>{const c=R.xr.getController(i),h={c,hand:'',gp:null,trig:0,pt:0,grip:0,pg:0,ba:0,pa:0,bb:0,pb:0,sx:0,sy:0,tv:0,st:0,vel:V(),pp:V(),grab:null,ctl:null,hp:null,hb:-1,loco:null};rig.add(c);
+ const ln=new T.Line(new T.BufferGeometry().setFromPoints([V(),V(0,0,-1)]),new T.LineBasicMaterial({color:0xffffff}));c.add(ln);h.ln=ln;
+ c.addEventListener('connected',e=>{h.hand=e.data.handedness;h.gp=e.data.gamepad;if(h.hand=='left'||!ui.mesh.parent||ui.mesh.parent===S){c.add(ui.mesh);ui.mesh.position.set(0,.13,.02);ui.mesh.rotation.set(-.95,0,0)}});
+ c.addEventListener('disconnected',()=>{h.gp=null});return h});
+function poll(h){const g=h.gp;h.pt=h.trig;h.pg=h.grip;h.pa=h.ba;h.pb=h.bb;if(!g)return;const b=g.buttons;h.trig=b[0]&&b[0].value>.5;h.tv=b[0]?b[0].value:0;h.grip=b[1]&&b[1].value>.5;h.ba=b[4]&&b[4].pressed;h.bb=b[5]&&b[5].pressed;h.sx=g.axes[2]!==undefined?g.axes[2]:(g.axes[0]||0);h.sy=g.axes[3]!==undefined?g.axes[3]:(g.axes[1]||0)}
+const rc=new T.Raycaster();rc.far=8;
+function input(dt){H.forEach(poll);const L=H.find(h=>h.hand=='left'),Rt=H.find(h=>h.hand=='right');
+ if(L&&L.ba&&!L.pa)ui.mesh.visible=!ui.mesh.visible;H.forEach(h=>{if(h.bb&&!h.pb)exit()});
+ if(seat){drv.t=-(L?L.sy:0);drv.s=L?L.sx:0;drv.b=L?L.tv:0}else{drv.t=drv.s=drv.b=0;
+  if(L&&cfg.move!='Grab'&&Math.hypot(L.sx,L.sy)>.15){const f=V(0,0,-1).applyQuaternion((cfg.move=='Hand'?L.c:cam).getWorldQuaternion(new T.Quaternion()));f.y=0;f.normalize();rig.position.addScaledVector(f,-L.sy*3.5*dt).addScaledVector(V(-f.z,0,f.x),L.sx*3.5*dt)}
+  if(Rt&&cfg.turn=='Smooth'){if(Math.abs(Rt.sx)>.2)turn(-Rt.sx*1.6*dt)}else if(Rt&&cfg.turn=='Snap'){const a=Math.abs(Rt.sx)>.7;if(a&&!Rt.st)turn(-Math.sign(Rt.sx)*Math.PI/6);Rt.st=a}}
+ let tipP=null;
+ H.forEach(h=>{const c=h.c,o=c.getWorldPosition(V()),d=V(0,0,-1).applyQuaternion(c.getWorldQuaternion(new T.Quaternion()));let td=h.trig&&!h.pt;const gd=h.grip&&!h.pg,gu=!h.grip&&h.pg;
+  h.vel.lerp(o.clone().sub(h.pp).divideScalar(Math.max(dt,.001)),.4);h.pp.copy(o);
+  if(h.grab){const A=h.grab;if(h.autog?(td||gd):gu){drop(h);td=false}else{const p=V(),qq=new T.Quaternion();new T.Matrix4().multiplyMatrices(c.matrixWorld,h.off).decompose(p,qq,V());A.body.position.set(p.x,p.y,p.z);A.body.quaternion.set(qq.x,qq.y,qq.z,qq.w);A.body.velocity.setZero();A.body.angularVelocity.setZero()}}
+  else if(gd){let bp=null,bd=.3;AS.forEach(A=>{if(!A.held)A.parts.forEach(p=>{const dd=p.m.getWorldPosition(V()).distanceTo(o)-rad(p);if(dd<bd){bd=dd;bp=p}})});if(bp)grab(h,h.trig&&bp.A.parts.length>1?detach(bp):bp.A,0);else if(cfg.move=='Grab')h.loco=o.clone()}
+  if(gu)h.loco=null;if(h.loco)rig.position.add(h.loco.clone().sub(o));
+  rc.set(o,d);let hit=null,dist=3,onUI=0;h.hb=-1;
+  if(ui.mesh.visible&&ui.mesh.parent!==c){const r=rc.intersectObject(ui.mesh)[0];if(r){onUI=1;dist=r.distance;const bx=r.uv.x*512,by=(1-r.uv.y)*640,bi=BT.findIndex(k=>bx>=k.x&&bx<=k.x+k.w&&by>=k.y&&by<=k.y+k.h);h.hb=bi;if(td&&bi>=0){BT[bi].fn(h);buzz(h);beep(800,.04)}}}
+  if(!onUI)for(const r of rc.intersectObjects(AS.map(A=>A.g),true)){let ob=r.object;while(ob&&!ob.userData.p)ob=ob.parent;if(ob&&ob.userData.p.A.held!==h){hit=ob.userData.p;dist=r.distance;break}}
+  h.hp=hit;if(hit)tipP=hit;
+  if(hit&&!hit.A.held){const t=cfg.tool;
+   if(td){if(t=='select'){if(hit.t=='seat')sit(hit);else if(['button','switch','stick','throttle'].includes(hit.t)){h.ctl={p:hit,x:o.clone(),v:hit.out};if(hit.t=='button')hit.out=1;if(hit.t=='switch')hit.out=1-hit.out;buzz(h)}}
+    else if(t=='copy')dupe(hit.A);else if(t=='delete'){delPart(hit);beep(300)}
+    else if(t=='wire'){if(pend){if(ACT.includes(hit.t)){wire(pend,hit);beep(900)}pend=null}else if(SRC.includes(hit.t))pend=hit;else if(ACT.includes(hit.t)){for(let i=WI.length;i--;)if(WI[i].b===hit){S.remove(WI[i].l);WI.splice(i,1)}if(hit.t=='wheel'){hit.role=(hit.role+1)%4;hit.man=1}}}}
+   if(h.trig&&t=='paint')paintP(hit,ui.col)}
+  if(h.ctl){const p=h.ctl.p;if(h.trig){if(p.t=='stick'||p.t=='throttle'){const dd=o.clone().sub(h.ctl.x).applyQuaternion(p.m.getWorldQuaternion(new T.Quaternion()).invert());p.out=p.t=='stick'?cl(h.ctl.v+dd.x*5,-1,1):cl(h.ctl.v-dd.z*5,0,1)}}else{if(p.t=='button'||p.t=='stick')p.out=0;h.ctl=null}}
+  h.ln.scale.z=dist;h.ln.material.color.setHex(onUI?0xffd23f:0xffffff)});
+ const nh=Math.max(...H.map(x=>x.hb));if(nh!=ui.hv){ui.hv=nh;ui.dirty=1}
+ tipSet(tipP);AS.forEach(A=>A.parts.forEach(p=>p.pm.material.emissive.setHex(p===pend?0x2255aa:H.some(h=>h.hp===p)?0x555555:p.out>.01?0x443300:0)))}
+function starter(){const ps=[],add=(t,x,y,z)=>{const p=mkPart(t);p.lp.set(x,y,z);ps.push(p)};[-.25,.25].forEach(x=>[-.5,0,.5].forEach(z=>add('plate',x,0,z)));[-.65,.65].forEach(x=>[-.5,.5].forEach(z=>add('wheel',x,0,z)));add('seat',0,.23,.25);add('thruster',0,.16,.8);roles(mkA(ps,V(0,.7,0),new T.Quaternion()));
+ [['cube',-1.6,.5,1],['cube',-1.9,.5,.4],['plate',1.8,.5,1],['wing',2.5,.5,-.8],['button',-1.2,.5,1.6],['wheel',1.2,.5,2]].forEach(([t,x,y,z])=>mkA([mkPart(t)],V(x,y,z),new T.Quaternion()))}
+starter();draw();
+let last=performance.now(),acc=0;
+R.setAnimationLoop(()=>{const now=performance.now(),dt=Math.min((now-last)/1000,.05);last=now;input(dt);acc+=dt;const h=1/90;let n=0;
+ while(acc>=h&&n++<5){AS.forEach(A=>{if(!A.held)forces(A,h)});W.step(h);acc-=h}if(acc>h)acc=0;sync();if(ui.dirty)draw();R.render(S,cam)});
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();R.setSize(innerWidth,innerHeight)});
+</script></body></html>
